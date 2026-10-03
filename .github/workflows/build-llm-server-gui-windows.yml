@@ -17,28 +17,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve app directory
-        shell: pwsh
-        run: |
-          if (Test-Path "llm-server-electron-gui/package.json") {
-            "APP_DIR=llm-server-electron-gui" | Out-File -FilePath $env:GITHUB_ENV -Append
-          } elseif (Test-Path "package.json") {
-            "APP_DIR=." | Out-File -FilePath $env:GITHUB_ENV -Append
-          } else {
-            throw "Cannot find Electron GUI package.json"
-          }
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: windows-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            windows-npm-
+
       - name: Install dependencies
-        working-directory: ${{ env.APP_DIR }}
         run: npm install
 
       - name: Build Windows installer
-        working-directory: ${{ env.APP_DIR }}
         run: npm run dist:win
 
       - name: Upload installer
@@ -46,5 +41,5 @@ jobs:
         with:
           name: llm-server-gui-windows
           path: |
-            ${{ env.APP_DIR }}/release/*.exe
-            ${{ env.APP_DIR }}/release/*.blockmap
+            release/*.exe
+            release/*.blockmap
