@@ -6,7 +6,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { Readable } from 'node:stream'
 import Store from 'electron-store'
 import { MODEL_PRESETS } from '../shared/presets'
-import type { AppState, IpcResult, ManagedProcess, ManagerSettings, ModelPreset, RuntimeStatus } from '../shared/types'
+import type { AppState, HardwareStatus, IpcResult, ManagedProcess, ManagerSettings, ModelPreset, RuntimeStatus } from '../shared/types'
 
 type StoreShape = {
   settings: ManagerSettings
@@ -22,6 +22,15 @@ const store = new Store<StoreShape>({
     settings: {
       modelMode: 'preset',
       modelSource: 'huggingface',
+      hardwareMode: 'auto',
+      manualBackend: 'auto',
+      manualDeviceCount: 1,
+      manualGpuLayersPreset: 'all',
+      manualGpuLayers: 'all',
+      manualDevices: '',
+      manualSplitMode: '',
+      manualTensorSplit: '',
+      extraRuntimeArgs: '',
       llamaPath: '',
       nodePath: 'node',
       llmServerDir: defaultLlmServerDir,
@@ -41,6 +50,7 @@ let mainWindow: BrowserWindow | null = null
 let runtimeProcess: ChildProcessWithoutNullStreams | null = null
 let adapterProcess: ChildProcessWithoutNullStreams | null = null
 let activeTask = ''
+let hardwareProbeCache: { command: string; detected: HardwareStatus; checkedAt: number } | null = null
 const logs: string[] = []
 
 function createWindow() {
@@ -83,6 +93,15 @@ function getSettings(): ManagerSettings {
     ...settings,
     modelMode: settings.modelMode || 'preset',
     modelSource: settings.modelSource || (settings.modelEndpoint ? 'hf-mirror' : 'huggingface'),
+    hardwareMode: settings.hardwareMode || 'auto',
+    manualBackend: settings.manualBackend || 'auto',
+    manualDeviceCount: Number(settings.manualDeviceCount || 1),
+    manualGpuLayersPreset: settings.manualGpuLayersPreset || 'all',
+    manualGpuLayers: settings.manualGpuLayers || 'all',
+    manualDevices: settings.manualDevices || '',
+    manualSplitMode: settings.manualSplitMode || '',
+    manualTensorSplit: settings.manualTensorSplit || '',
+    extraRuntimeArgs: settings.extraRuntimeArgs || '',
     llamaPath: settings.llamaPath || detectLlamaPath(),
     llmServerDir: defaultLlmServerDir,
     modelEndpoint: settings.modelEndpoint || '',
@@ -136,12 +155,14 @@ function managedProcess(child: ChildProcessWithoutNullStreams | null): ManagedPr
 function getState(): AppState {
   const settings = getSettings()
   const llamaPath = settings.llamaPath || detectLlamaPath()
+  const hardware = resolveHardwareStatus(settings, llamaPath)
   return {
     presets: MODEL_PRESETS,
     settings: { ...settings, llamaPath },
     status: {
       platform: platform(),
       arch: arch(),
+      hardware,
       llamaPath,
       llamaInstalled: Boolean(llamaPath && (llamaPath === 'llama' || llamaPath === 'llama-server' || existsSync(llamaPath))),
       installHint: installCommandHint(),
@@ -238,12 +259,181 @@ function selectedLlamaCommand() {
   return command
 }
 
+function resolveHardwareStatus(settings: ManagerSettings = getSettings(), command = settings.llamaPath || detectLlamaPath()): HardwareStatus {
+  const detected = detectHardware(command)
+  const mode = settings.hardwareMode || 'auto'
+  const args = mode === 'manual' ? manualHardwareArgs(settings, detected) : smartHardwareArgs(detected)
+  const backend = mode === 'manual' ? manualBackend(settings, detected) : detected.backend
+  const deviceCount = mode === 'manual' ? manualDeviceCount(settings, backend, detected) : detected.deviceCount
+  const label = backendLabel(backend)
+  const deviceSummary = deviceCount > 0 ? `${deviceCount} 张/个设备` : '未识别到 GPU'
+  return {
+    ...detected,
+    mode,
+    backend,
+    label,
+    deviceCount,
+    args,
+    summary: `${mode === 'manual' ? '手动' : '智能'}：${label}，${deviceSummary}${args.length ? `，参数 ${args.join(' ')}` : '，不追加 GPU 参数'}`,
+  }
+}
+
+function detectHardware(command: string): HardwareStatus {
+  const fallback: HardwareStatus = {
+    mode: 'auto',
+    backend: process.platform === 'darwin' ? 'metal' : 'unknown',
+    label: process.platform === 'darwin' ? 'Apple Metal' : '未知',
+    deviceCount: process.platform === 'darwin' ? 1 : 0,
+    devices: process.platform === 'darwin' ? ['Apple GPU'] : [],
+    args: [],
+    summary: '',
+    raw: '',
+  }
+  if (!command) return fallback
+  if (hardwareProbeCache?.command === command && Date.now() - hardwareProbeCache.checkedAt < 30_000) {
+    return hardwareProbeCache.detected
+  }
+  try {
+    const result = spawnSync(command, ['serve', '--list-devices'], {
+      encoding: 'utf8',
+      timeout: 8000,
+      env: { ...process.env },
+    })
+    const raw = `${result.stdout || ''}\n${result.stderr || ''}`.trim()
+    if (!raw && process.platform === 'darwin') {
+      hardwareProbeCache = { command, detected: fallback, checkedAt: Date.now() }
+      return fallback
+    }
+    const devices = parseHardwareDevices(raw)
+    const backend = inferBackend(raw, devices)
+    const inferredCount = devices.length || (backend === 'metal' ? 1 : 0)
+    const detected: HardwareStatus = {
+      mode: 'auto',
+      backend,
+      label: backendLabel(backend),
+      deviceCount: inferredCount,
+      devices: devices.length ? devices : inferredCount ? [`${backendLabel(backend)} device`] : [],
+      args: [],
+      summary: '',
+      raw,
+    }
+    hardwareProbeCache = { command, detected, checkedAt: Date.now() }
+    return detected
+  } catch {
+    hardwareProbeCache = { command, detected: fallback, checkedAt: Date.now() }
+    return fallback
+  }
+}
+
+function parseHardwareDevices(raw: string) {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const cuda = new Map<string, string>()
+  for (const line of lines) {
+    const match = line.match(/\b(CUDA\d+)\b[:\s-]*(.*)/i)
+    if (match) cuda.set(match[1].toUpperCase(), `${match[1].toUpperCase()}${match[2] ? ` ${match[2].trim()}` : ''}`)
+  }
+  if (cuda.size) return [...cuda.values()]
+  const deviceLines = lines.filter((line) => /(device|gpu|metal|vulkan|sycl|hip|rocm)/i.test(line) && !/usage|help|available options/i.test(line))
+  return [...new Set(deviceLines)]
+}
+
+function inferBackend(raw: string, devices: string[]): HardwareStatus['backend'] {
+  const text = `${raw}\n${devices.join('\n')}`
+  if (/cuda|cublas/i.test(text)) return 'cuda'
+  if (/metal|apple/i.test(text) || process.platform === 'darwin') return 'metal'
+  if (/vulkan/i.test(text)) return 'vulkan'
+  if (/hip|rocm/i.test(text)) return 'cuda'
+  if (/cpu/i.test(text)) return 'cpu'
+  return 'unknown'
+}
+
+function backendLabel(backend: HardwareStatus['backend']) {
+  if (backend === 'cuda') return 'CUDA'
+  if (backend === 'metal') return 'Apple Metal'
+  if (backend === 'vulkan') return 'Vulkan'
+  if (backend === 'cpu') return 'CPU'
+  return '未知后端'
+}
+
+function smartHardwareArgs(detected: HardwareStatus) {
+  if (detected.backend === 'cpu' || detected.backend === 'unknown' || detected.deviceCount === 0) return []
+  const args = ['--gpu-layers', 'all']
+  const ids = hardwareDeviceIds(detected)
+  if (detected.backend === 'cuda' && ids.length > 1) args.push('--device', ids.join(','), '--split-mode', 'layer')
+  return args
+}
+
+function hardwareDeviceIds(detected: HardwareStatus) {
+  if (detected.backend !== 'cuda') return []
+  return detected.devices
+    .map((device) => device.match(/\bCUDA\d+\b/i)?.[0]?.toUpperCase() || '')
+    .filter(Boolean)
+}
+
+function manualBackend(settings: ManagerSettings, detected: HardwareStatus): HardwareStatus['backend'] {
+  return settings.manualBackend === 'auto' ? detected.backend : settings.manualBackend
+}
+
+function manualHardwareArgs(settings: ManagerSettings, detected: HardwareStatus) {
+  const backend = manualBackend(settings, detected)
+  if (backend === 'cpu') return ['--gpu-layers', '0']
+  const args: string[] = []
+  const gpuLayers = manualGpuLayers(settings)
+  if (gpuLayers) args.push('--gpu-layers', gpuLayers)
+  const devices = manualDevices(settings, backend)
+  if (devices) args.push('--device', devices)
+  const splitMode = String(settings.manualSplitMode || '').trim()
+  if (splitMode && splitMode !== 'auto') args.push('--split-mode', splitMode)
+  else if (backend === 'cuda' && manualDeviceCount(settings, backend, detected) > 1) args.push('--split-mode', 'layer')
+  const tensorSplit = String(settings.manualTensorSplit || '').trim()
+  if (tensorSplit) args.push('--tensor-split', tensorSplit)
+  return args
+}
+
+function manualDeviceCount(settings: ManagerSettings, backend: HardwareStatus['backend'], detected: HardwareStatus) {
+  if (backend === 'cpu') return 0
+  if (backend === 'metal') return 1
+  const count = Math.round(Number(settings.manualDeviceCount || 1))
+  if (Number.isFinite(count) && count > 0) return Math.min(16, count)
+  return detected.deviceCount || 1
+}
+
+function manualGpuLayers(settings: ManagerSettings) {
+  if (settings.manualGpuLayersPreset === 'none') return '0'
+  if (settings.manualGpuLayersPreset === 'custom') return String(settings.manualGpuLayers || '').trim()
+  return 'all'
+}
+
+function manualDevices(settings: ManagerSettings, backend: HardwareStatus['backend']) {
+  const expertValue = String(settings.manualDevices || '').trim()
+  if (expertValue) return expertValue
+  const count = manualDeviceCount(settings, backend, {
+    mode: 'auto',
+    backend,
+    label: '',
+    deviceCount: 1,
+    devices: [],
+    args: [],
+    summary: '',
+    raw: '',
+  })
+  if (backend === 'cuda' && count > 1) return Array.from({ length: count }, (_item, index) => `CUDA${index}`).join(',')
+  return ''
+}
+
+function splitExtraArgs(input: string) {
+  const matches = String(input || '').match(/"[^"]*"|'[^']*'|\S+/g) || []
+  return matches.map((item) => item.replace(/^(['"])(.*)\1$/, '$2'))
+}
+
 async function startRuntime(preset: ModelPreset = currentPreset(), mode: 'serve' | 'download' = 'serve') {
   if (runtimeProcess) throw new Error('模型 runtime 已在运行')
   const settings = getSettings()
   const command = selectedLlamaCommand()
   if (settings.modelMode === 'preset') await ensurePresetAssets(settings, preset)
   const args = runtimeArgs(settings, preset)
+  const hardware = resolveHardwareStatus(settings, command)
+  log(`硬件策略：${hardware.summary}`)
   log(`${mode === 'download' ? '下载/预热' : '启动'}模型：${runtimeLabel(settings, preset)}`)
   runtimeProcess = spawnManaged(command, args, {
     env: modelDownloadEnv(settings),
@@ -281,7 +471,10 @@ function runtimeArgs(settings: ManagerSettings, preset: ModelPreset) {
     if (mmprojPath) args.push('--mmproj', mmprojPath)
     else log(`未找到预设视觉投影缓存，将依赖 llama 自动加载：${preset.mmprojFile}`)
   }
+  const hardware = resolveHardwareStatus(settings)
+  args.push(...hardware.args)
   args.push('--ctx-size', String(preset.ctxSize), '--host', settings.runtimeHost, '--port', String(settings.runtimePort))
+  args.push(...splitExtraArgs(settings.extraRuntimeArgs))
   return args
 }
 

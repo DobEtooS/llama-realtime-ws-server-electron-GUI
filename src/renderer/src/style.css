@@ -163,6 +163,49 @@ body {
   font-size: 13px;
 }
 
+.hardware-panel {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.hardware-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hardware-head p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.hardware-devices,
+.hardware-args {
+  margin-top: 8px;
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.hardware-args {
+  color: #0f766e;
+}
+
+.advanced-collapse {
+  margin-top: 8px;
+}
+
+.expert-collapse {
+  margin-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
 .install-hint {
   margin-top: 14px;
 }

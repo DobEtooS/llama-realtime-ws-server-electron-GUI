@@ -139,6 +139,117 @@
             <a-form-item label="Node 路径">
               <a-input v-model:value="draft.nodePath" placeholder="node" @blur="saveSettings" />
             </a-form-item>
+            <div class="hardware-panel">
+              <div class="hardware-head">
+                <div>
+                  <strong>硬件加速</strong>
+                  <p>{{ state?.status.hardware.summary || '等待检测' }}</p>
+                </div>
+                <a-space>
+                  <a-tag :color="hardwareColor(state?.status.hardware.backend)">
+                    {{ state?.status.hardware.label || '未知' }}
+                  </a-tag>
+                  <a-tag v-if="state?.status.hardware.deviceCount">
+                    {{ state.status.hardware.deviceCount }} 个设备
+                  </a-tag>
+                </a-space>
+              </div>
+              <div v-if="state?.status.hardware.devices.length" class="hardware-devices">
+                {{ state.status.hardware.devices.join(' / ') }}
+              </div>
+              <div v-if="state?.status.hardware.args.length" class="hardware-args">
+                {{ state.status.hardware.args.join(' ') }}
+              </div>
+              <a-collapse class="advanced-collapse" ghost>
+                <a-collapse-panel key="hardware" header="高级硬件参数">
+                  <a-form-item label="参数模式">
+                    <a-segmented
+                      v-model:value="draft.hardwareMode"
+                      :options="[
+                        { label: '智能指定', value: 'auto' },
+                        { label: '手动指定', value: 'manual' },
+                      ]"
+                      block
+                      @change="saveSettings"
+                    />
+                  </a-form-item>
+                  <template v-if="draft.hardwareMode === 'manual'">
+                    <a-row :gutter="12">
+                      <a-col :span="12">
+                        <a-form-item label="我的架构">
+                          <a-select v-model:value="draft.manualBackend" @change="saveSettings">
+                            <a-select-option value="auto">跟随检测</a-select-option>
+                            <a-select-option value="cuda">NVIDIA CUDA</a-select-option>
+                            <a-select-option value="metal">Mac / Apple Metal</a-select-option>
+                            <a-select-option value="vulkan">Vulkan</a-select-option>
+                            <a-select-option value="cpu">只用 CPU</a-select-option>
+                          </a-select>
+                        </a-form-item>
+                      </a-col>
+                      <a-col :span="12">
+                        <a-form-item label="设备数量">
+                          <a-input-number
+                            v-model:value="draft.manualDeviceCount"
+                            :min="1"
+                            :max="16"
+                            :disabled="draft.manualBackend === 'metal' || draft.manualBackend === 'cpu'"
+                            style="width: 100%"
+                            @change="saveSettings"
+                            @blur="saveSettings"
+                          />
+                        </a-form-item>
+                      </a-col>
+                    </a-row>
+                    <a-form-item label="显存卸载">
+                      <a-segmented
+                        v-model:value="draft.manualGpuLayersPreset"
+                        :options="[
+                          { label: '尽量使用显卡', value: 'all' },
+                          { label: '不用显卡', value: 'none' },
+                          { label: '自定义层数', value: 'custom' },
+                        ]"
+                        block
+                        @change="saveSettings"
+                      />
+                    </a-form-item>
+                    <a-form-item v-if="draft.manualGpuLayersPreset === 'custom'" label="自定义 GPU Layers">
+                      <a-input v-model:value="draft.manualGpuLayers" placeholder="例如 35、80、all、0" @blur="saveSettings" />
+                    </a-form-item>
+                    <div class="hint">
+                      常见填写：NVIDIA 服务器选 CUDA 并填显卡数量；Mac 选 Apple Metal；不确定就用智能指定。
+                    </div>
+                    <a-collapse class="expert-collapse" ghost>
+                      <a-collapse-panel key="expert" header="专家参数">
+                        <a-row :gutter="12">
+                          <a-col :span="12">
+                            <a-form-item label="设备名称">
+                              <a-input v-model:value="draft.manualDevices" placeholder="如 CUDA0,CUDA1；留空按数量自动生成" @blur="saveSettings" />
+                            </a-form-item>
+                          </a-col>
+                          <a-col :span="12">
+                            <a-form-item label="Split Mode">
+                              <a-select v-model:value="draft.manualSplitMode" placeholder="自动" @change="saveSettings">
+                                <a-select-option value="">自动</a-select-option>
+                                <a-select-option value="none">none</a-select-option>
+                                <a-select-option value="layer">layer</a-select-option>
+                                <a-select-option value="row">row</a-select-option>
+                                <a-select-option value="tensor">tensor</a-select-option>
+                              </a-select>
+                            </a-form-item>
+                          </a-col>
+                        </a-row>
+                        <a-form-item label="Tensor Split">
+                          <a-input v-model:value="draft.manualTensorSplit" placeholder="如 1,1,1,1,1,1,1,1；留空默认" @blur="saveSettings" />
+                        </a-form-item>
+                      </a-collapse-panel>
+                    </a-collapse>
+                  </template>
+                  <a-form-item label="额外 runtime 参数">
+                    <a-input v-model:value="draft.extraRuntimeArgs" placeholder="如 --flash-attn on --ctx-size 4096" @blur="saveSettings" />
+                  </a-form-item>
+                </a-collapse-panel>
+              </a-collapse>
+            </div>
             <a-row :gutter="12">
               <a-col :span="8">
                 <a-form-item label="Runtime Host">
@@ -186,6 +297,15 @@ const logRef = ref<HTMLElement | null>(null)
 const draft = reactive({
   modelMode: 'preset' as 'preset' | 'local',
   modelSource: 'huggingface' as 'huggingface' | 'hf-mirror' | 'modelscope',
+  hardwareMode: 'auto' as 'auto' | 'manual',
+  manualBackend: 'auto' as 'auto' | 'cuda' | 'metal' | 'vulkan' | 'cpu',
+  manualDeviceCount: 1,
+  manualGpuLayersPreset: 'all' as 'all' | 'none' | 'custom',
+  manualGpuLayers: 'all',
+  manualDevices: '',
+  manualSplitMode: '',
+  manualTensorSplit: '',
+  extraRuntimeArgs: '',
   llamaPath: '',
   nodePath: 'node',
   runtimeHost: '127.0.0.1',
@@ -310,6 +430,14 @@ function healthLabel(value?: string) {
   if (value === 'ok') return '正常'
   if (value === 'failed') return '异常'
   return '未知'
+}
+
+function hardwareColor(value?: string) {
+  if (value === 'cuda') return 'green'
+  if (value === 'metal') return 'blue'
+  if (value === 'vulkan') return 'purple'
+  if (value === 'cpu') return 'orange'
+  return 'default'
 }
 
 function processText(process?: ManagedProcess) {

@@ -23,6 +23,24 @@ function buildPrompt(request) {
   ].join('\n')
 }
 
+function maxTokensFor(request) {
+  const eventCount = (request.eventNames?.length ? request.eventNames : splitEventQueries(request.query)).length
+  if (request.eventRecognition || eventCount > 1) return Math.max(64, Math.min(160, eventCount * 64))
+  return 64
+}
+
+function parseJsonObject(text) {
+  const cleaned = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1))
+    throw new Error(`模型未返回有效 JSON：${cleaned.slice(0, 500)}`)
+  }
+}
+
 export function createMiniCpmOProvider(config = {}) {
   const endpoint = config.endpoint || 'http://127.0.0.1:8080/v1/chat/completions'
   const model = config.model || 'MiniCPM-o-4.5'
@@ -39,6 +57,8 @@ export function createMiniCpmOProvider(config = {}) {
         body: JSON.stringify({
           model,
           temperature: 0,
+          max_tokens: maxTokensFor(request),
+          response_format: { type: 'json_object' },
           messages: [
             {
               role: 'user',
@@ -60,7 +80,7 @@ export function createMiniCpmOProvider(config = {}) {
       }
       const payload = await response.json()
       const text = payload.choices?.[0]?.message?.content || payload.text || ''
-      return JSON.parse(String(text).replace(/```json/gi, '').replace(/```/g, '').trim())
+      return parseJsonObject(text)
     },
   }
 }

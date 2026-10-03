@@ -18,6 +18,15 @@ export type ModelPreset = {
 export type ManagerSettings = {
   modelMode: 'preset' | 'local'
   modelSource: 'huggingface' | 'hf-mirror' | 'modelscope'
+  hardwareMode: 'auto' | 'manual'
+  manualBackend: 'auto' | 'cuda' | 'metal' | 'vulkan' | 'cpu'
+  manualDeviceCount: number
+  manualGpuLayersPreset: 'all' | 'none' | 'custom'
+  manualGpuLayers: string
+  manualDevices: string
+  manualSplitMode: string
+  manualTensorSplit: string
+  extraRuntimeArgs: string
   llamaPath: string
   nodePath: string
   llmServerDir: string
@@ -40,6 +49,7 @@ export type ManagedProcess = {
 export type RuntimeStatus = {
   platform: NodeJS.Platform
   arch: string
+  hardware: HardwareStatus
   llamaPath: string
   llamaInstalled: boolean
   installHint: string
@@ -50,6 +60,17 @@ export type RuntimeStatus = {
   downloadedPresetIds: string[]
   activeTask: string
   logs: string[]
+}
+
+export type HardwareStatus = {
+  mode: 'auto' | 'manual'
+  backend: 'cuda' | 'metal' | 'vulkan' | 'cpu' | 'unknown'
+  label: string
+  deviceCount: number
+  devices: string[]
+  args: string[]
+  summary: string
+  raw: string
 }
 
 export type AppState = {

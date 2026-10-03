@@ -64,7 +64,7 @@ const server = createServer((req, res) => {
     writeJson(res, 200, {
       ok: true,
       provider: provider.name,
-      endpoint: `ws://${config.host}:${config.port}/v1/realtime?mode=${config.defaultMode}`,
+      endpoint: publicRealtimeEndpoint(req),
     })
     return
   }
@@ -74,6 +74,18 @@ const server = createServer((req, res) => {
     realtime: `/v1/realtime?mode=${config.defaultMode}`,
   })
 })
+
+function publicRealtimeEndpoint(req) {
+  const forwardedHost = Array.isArray(req.headers['x-forwarded-host'])
+    ? req.headers['x-forwarded-host'][0]
+    : req.headers['x-forwarded-host']
+  const forwardedProto = Array.isArray(req.headers['x-forwarded-proto'])
+    ? req.headers['x-forwarded-proto'][0]
+    : req.headers['x-forwarded-proto']
+  const host = forwardedHost || req.headers.host || `${config.host}:${config.port}`
+  const proto = forwardedProto === 'https' ? 'wss' : 'ws'
+  return `${proto}://${host}/v1/realtime?mode=${config.defaultMode}`
+}
 
 server.on('upgrade', (req, socket) => {
   try {
