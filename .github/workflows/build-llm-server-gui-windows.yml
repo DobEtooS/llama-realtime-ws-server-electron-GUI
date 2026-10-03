@@ -1,0 +1,50 @@
+name: Build llm-server GUI Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve app directory
+        shell: pwsh
+        run: |
+          if (Test-Path "llm-server-electron-gui/package.json") {
+            "APP_DIR=llm-server-electron-gui" | Out-File -FilePath $env:GITHUB_ENV -Append
+          } elseif (Test-Path "package.json") {
+            "APP_DIR=." | Out-File -FilePath $env:GITHUB_ENV -Append
+          } else {
+            throw "Cannot find Electron GUI package.json"
+          }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: npm install
+
+      - name: Build Windows installer
+        working-directory: ${{ env.APP_DIR }}
+        run: npm run dist:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-server-gui-windows
+          path: |
+            ${{ env.APP_DIR }}/release/*.exe
+            ${{ env.APP_DIR }}/release/*.blockmap
