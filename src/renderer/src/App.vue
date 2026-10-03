@@ -16,20 +16,70 @@
     <section class="grid">
       <div class="left">
         <a-card title="模型预设" :bordered="false">
-          <a-radio-group v-model:value="draft.selectedPresetId" class="preset-list" @change="saveSettings">
-            <label v-for="preset in state?.presets || []" :key="preset.id" class="preset-item">
-              <a-radio :value="preset.id" />
-              <div class="preset-body">
-                <div class="preset-head">
-                  <strong>{{ preset.name }}</strong>
-                  <a-tag>{{ preset.providerLabel }}</a-tag>
-                  <a-tag v-if="downloadedSet.has(preset.id)" color="green">已下载/已验证</a-tag>
+          <a-segmented
+            v-model:value="draft.modelMode"
+            class="mode-switch"
+            :options="[
+              { label: '预设在线下载', value: 'preset' },
+              { label: '本地 GGUF 文件', value: 'local' },
+            ]"
+            block
+            @change="saveSettings"
+          />
+          <template v-if="draft.modelMode === 'preset'">
+            <div class="source-panel">
+              <div class="field-label">预设下载来源</div>
+              <a-segmented
+                v-model:value="draft.modelSource"
+                class="source-switch"
+                :options="[
+                  { label: 'Hugging Face', value: 'huggingface' },
+                  { label: 'HF 镜像', value: 'hf-mirror' },
+                  { label: 'ModelScope', value: 'modelscope' },
+                ]"
+                block
+                @change="saveSettings"
+              />
+              <div class="hint">大陆网络优先选 ModelScope；HF 镜像会使用 https://hf-mirror.com。</div>
+            </div>
+
+            <a-radio-group v-model:value="draft.selectedPresetId" class="preset-list" @change="saveSettings">
+              <label v-for="preset in state?.presets || []" :key="preset.id" class="preset-item">
+                <a-radio :value="preset.id" />
+                <div class="preset-body">
+                  <div class="preset-head">
+                    <strong>{{ preset.name }}</strong>
+                    <a-tag>{{ preset.providerLabel }}</a-tag>
+                    <a-tag v-if="downloadedSet.has(preset.id)" color="green">已下载/已验证</a-tag>
+                  </div>
+                  <div class="preset-meta">{{ preset.model }}</div>
+                  <div class="preset-note">{{ preset.notes }}</div>
                 </div>
-                <div class="preset-meta">{{ preset.model }}</div>
-                <div class="preset-note">{{ preset.notes }}</div>
-              </div>
-            </label>
-          </a-radio-group>
+              </label>
+            </a-radio-group>
+          </template>
+
+          <div v-else class="local-panel">
+            <div class="field-label">本地 GGUF 主模型</div>
+            <a-input-group compact>
+              <a-input
+                v-model:value="draft.localModelPath"
+                style="width: calc(100% - 88px)"
+                placeholder="ModelScope 下载后的 .gguf 主模型文件"
+              />
+              <a-button @click="chooseLocalModel">选择</a-button>
+            </a-input-group>
+            <div class="field-label local-field">本地 mmproj 文件</div>
+            <a-input-group compact>
+              <a-input
+                v-model:value="draft.localMmprojPath"
+                style="width: calc(100% - 88px)"
+                placeholder="图片/视频输入需要；纯文本模型可留空"
+              />
+              <a-button @click="chooseLocalMmproj">选择</a-button>
+            </a-input-group>
+            <div class="hint">mmproj 只对多模态输入必需；如果留空，本地模型只能处理文本请求。</div>
+          </div>
         </a-card>
 
         <a-card title="一键操作" :bordered="false">
@@ -140,12 +190,17 @@ import type { AppState, IpcResult, ManagedProcess } from '@shared/types'
 const state = ref<AppState | null>(null)
 const logRef = ref<HTMLElement | null>(null)
 const draft = reactive({
+  modelMode: 'preset' as 'preset' | 'local',
+  modelSource: 'huggingface' as 'huggingface' | 'hf-mirror' | 'modelscope',
   llamaPath: '',
   nodePath: 'node',
   llmServerDir: '',
   runtimeHost: '127.0.0.1',
   runtimePort: 8080,
   adapterPort: 8765,
+  modelEndpoint: '',
+  localModelPath: '',
+  localMmprojPath: '',
   selectedPresetId: '',
 })
 
@@ -198,6 +253,22 @@ async function chooseServerDir() {
   const path = await unwrap(await window.llmServerManager.choosePath('directory'))
   if (!path) return
   draft.llmServerDir = path
+  await saveSettings()
+}
+
+async function chooseLocalModel() {
+  const path = await unwrap(await window.llmServerManager.choosePath('file'))
+  if (!path) return
+  draft.localModelPath = path
+  draft.modelMode = 'local'
+  await saveSettings()
+}
+
+async function chooseLocalMmproj() {
+  const path = await unwrap(await window.llmServerManager.choosePath('file'))
+  if (!path) return
+  draft.localMmprojPath = path
+  draft.modelMode = 'local'
   await saveSettings()
 }
 

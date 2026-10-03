@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
-import { join, resolve } from 'node:path'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, platform, arch } from 'node:os'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { Readable } from 'node:stream'
 import Store from 'electron-store'
 import { MODEL_PRESETS } from '../shared/presets'
 import type { AppState, IpcResult, ManagedProcess, ManagerSettings, ModelPreset, RuntimeStatus } from '../shared/types'
@@ -17,12 +18,17 @@ const defaultLlmServerDir = resolve(repoRoot, 'llm-server')
 const store = new Store<StoreShape>({
   defaults: {
     settings: {
+      modelMode: 'preset',
+      modelSource: 'huggingface',
       llamaPath: '',
       nodePath: 'node',
       llmServerDir: defaultLlmServerDir,
       runtimeHost: '127.0.0.1',
       runtimePort: 8080,
       adapterPort: 8765,
+      modelEndpoint: '',
+      localModelPath: '',
+      localMmprojPath: '',
       selectedPresetId: MODEL_PRESETS[1].id,
     },
     downloadedPresetIds: [],
@@ -73,8 +79,13 @@ function getSettings(): ManagerSettings {
   const settings = store.get('settings')
   return {
     ...settings,
+    modelMode: settings.modelMode || 'preset',
+    modelSource: settings.modelSource || (settings.modelEndpoint ? 'hf-mirror' : 'huggingface'),
     llamaPath: settings.llamaPath || detectLlamaPath(),
     llmServerDir: settings.llmServerDir || defaultLlmServerDir,
+    modelEndpoint: settings.modelEndpoint || '',
+    localModelPath: settings.localModelPath || '',
+    localMmprojPath: settings.localMmprojPath || '',
   }
 }
 
@@ -225,32 +236,188 @@ function selectedLlamaCommand() {
   return command
 }
 
-function startRuntime(preset: ModelPreset = currentPreset(), mode: 'serve' | 'download' = 'serve') {
+async function startRuntime(preset: ModelPreset = currentPreset(), mode: 'serve' | 'download' = 'serve') {
   if (runtimeProcess) throw new Error('模型 runtime 已在运行')
   const settings = getSettings()
   const command = selectedLlamaCommand()
-  const args = [
-    'serve',
-    '-hf',
-    preset.model,
-    '--ctx-size',
-    String(preset.ctxSize),
-    '--host',
-    settings.runtimeHost,
-    '--port',
-    String(settings.runtimePort),
-  ]
-  log(`${mode === 'download' ? '下载/预热' : '启动'}模型：${preset.name}`)
-  runtimeProcess = spawnManaged(command, args)
+  if (settings.modelMode === 'preset') await ensurePresetAssets(settings, preset)
+  const args = runtimeArgs(settings, preset)
+  log(`${mode === 'download' ? '下载/预热' : '启动'}模型：${runtimeLabel(settings, preset)}`)
+  runtimeProcess = spawnManaged(command, args, {
+    env: modelDownloadEnv(settings),
+  })
   broadcastState()
   return runtimeProcess
 }
 
+function runtimeArgs(settings: ManagerSettings, preset: ModelPreset) {
+  const args =
+    settings.modelMode === 'local'
+      ? ['serve', '-m', settings.localModelPath]
+      : settings.modelSource === 'modelscope'
+        ? ['serve', '-m', modelscopeCachePath(preset, preset.modelscope?.modelFile || '')]
+      : ['serve', '-hf', preset.model]
+  if (settings.modelMode === 'local') {
+    if (!settings.localModelPath) throw new Error('请先选择本地 GGUF 主模型文件')
+    if (!existsSync(settings.localModelPath)) throw new Error(`本地模型文件不存在：${settings.localModelPath}`)
+    if (settings.localMmprojPath) {
+      if (!existsSync(settings.localMmprojPath)) throw new Error(`本地 mmproj 文件不存在：${settings.localMmprojPath}`)
+      args.push('--mmproj', settings.localMmprojPath)
+    }
+  } else if (settings.modelSource === 'modelscope') {
+    if (!preset.modelscope) throw new Error(`预设未配置 ModelScope 下载信息：${preset.name}`)
+    if (!existsSync(modelscopeCachePath(preset, preset.modelscope.modelFile))) {
+      throw new Error(`ModelScope 主模型文件不存在：${preset.modelscope.modelFile}`)
+    }
+    if (preset.modelscope.mmprojFile) {
+      const mmprojPath = modelscopeCachePath(preset, preset.modelscope.mmprojFile)
+      if (!existsSync(mmprojPath)) throw new Error(`ModelScope mmproj 文件不存在：${preset.modelscope.mmprojFile}`)
+      args.push('--mmproj', mmprojPath)
+    }
+  } else if (preset.mmprojFile) {
+    const mmprojPath = resolvePresetMmprojFile(settings, preset)
+    if (mmprojPath) args.push('--mmproj', mmprojPath)
+    else log(`未找到预设视觉投影缓存，将依赖 llama 自动加载：${preset.mmprojFile}`)
+  }
+  args.push('--ctx-size', String(preset.ctxSize), '--host', settings.runtimeHost, '--port', String(settings.runtimePort))
+  return args
+}
+
+async function ensurePresetAssets(settings: ManagerSettings, preset: ModelPreset) {
+  if (settings.modelSource === 'modelscope') {
+    await ensureModelscopePreset(preset)
+    return
+  }
+  await ensurePresetMmproj(settings, preset)
+}
+
+async function ensurePresetMmproj(settings: ManagerSettings, preset: ModelPreset) {
+  if (!preset.mmprojFile) return
+  if (resolvePresetMmprojFile(settings, preset)) return
+  await ensureHfSidecarFile(settings, preset, preset.mmprojFile, '视觉投影')
+  if (!resolvePresetMmprojFile(settings, preset)) {
+    throw new Error(`视觉投影文件下载后仍未在缓存中找到：${preset.mmprojFile}`)
+  }
+}
+
+async function ensureHfSidecarFile(settings: ManagerSettings, preset: ModelPreset, file: string, label: string) {
+  const target = hfSidecarCachePath(preset, file)
+  if (existsSync(target)) return
+  log(`下载${label}文件：${file}`)
+  await downloadFile(hfFileUrl(settings, preset.hf, file), target, `${preset.name} ${label}`)
+}
+
+function resolvePresetMmprojFile(settings: ManagerSettings, preset: ModelPreset) {
+  if (!preset.mmprojFile) return ''
+  const appCachePath = hfSidecarCachePath(preset, preset.mmprojFile)
+  if (existsSync(appCachePath)) return appCachePath
+  if (settings.modelSource === 'huggingface' || settings.modelSource === 'hf-mirror') {
+    return resolveHfCacheFile(preset.hf, preset.mmprojFile)
+  }
+  return ''
+}
+
+function hfSidecarCachePath(preset: ModelPreset, file: string) {
+  return join(app.getPath('userData'), 'models', 'hf-sidecars', preset.id, file)
+}
+
+function hfFileUrl(settings: ManagerSettings, repo: string, file: string) {
+  const origin = settings.modelSource === 'hf-mirror' ? 'https://hf-mirror.com' : 'https://huggingface.co'
+  const safeFile = file.split('/').map(encodeURIComponent).join('/')
+  return `${origin}/${repo}/resolve/main/${safeFile}`
+}
+
+async function ensureModelscopePreset(preset: ModelPreset) {
+  if (!preset.modelscope) throw new Error(`预设未配置 ModelScope 下载信息：${preset.name}`)
+  await ensureModelscopeFile(preset, preset.modelscope.modelFile, '主模型')
+  if (preset.modelscope.mmprojFile) await ensureModelscopeFile(preset, preset.modelscope.mmprojFile, '视觉投影')
+}
+
+async function ensureModelscopeFile(preset: ModelPreset, file: string, label: string) {
+  const target = modelscopeCachePath(preset, file)
+  if (existsSync(target)) return
+  if (!preset.modelscope) throw new Error(`预设未配置 ModelScope 下载信息：${preset.name}`)
+  const url = modelscopeFileUrl(preset.modelscope.repo, file)
+  log(`从 ModelScope 下载${label}：${preset.modelscope.repo}/${file}`)
+  await downloadFile(url, target, `${preset.name} ${label}`)
+}
+
+function modelscopeCachePath(preset: ModelPreset, file: string) {
+  return join(app.getPath('userData'), 'models', 'modelscope', preset.id, file)
+}
+
+function modelscopeFileUrl(repo: string, file: string) {
+  const url = new URL(`https://modelscope.cn/api/v1/models/${repo}/repo`)
+  url.searchParams.set('Revision', 'master')
+  url.searchParams.set('FilePath', file)
+  return url.toString()
+}
+
+async function downloadFile(url: string, target: string, label: string) {
+  ensureDir(dirname(target))
+  const tmp = `${target}.tmp`
+  const response = await fetch(url)
+  if (!response.ok || !response.body) throw new Error(`下载失败：${label} (${response.status})`)
+  const total = Number(response.headers.get('content-length') || 0)
+  let received = 0
+  let nextProgressLog = 0
+  await new Promise<void>((resolve, reject) => {
+    const source = Readable.fromWeb(response.body as any)
+    const file = createWriteStream(tmp)
+    source.on('data', (chunk: Buffer) => {
+      received += chunk.length
+      if (!total) return
+      const percent = Math.floor((received / total) * 100)
+      if (percent >= nextProgressLog) {
+        log(`${label} 下载进度 ${percent}%`)
+        nextProgressLog = percent + 5
+      }
+    })
+    source.on('error', reject)
+    file.on('error', reject)
+    file.on('finish', resolve)
+    source.pipe(file)
+  })
+  renameSync(tmp, target)
+  log(`${label} 下载完成：${target}`)
+}
+
+function resolveHfCacheFile(repo: string, file: string) {
+  const cacheRoot = join(homedir(), '.cache', 'huggingface', 'hub', `models--${repo.replace('/', '--')}`)
+  const refPath = join(cacheRoot, 'refs', 'main')
+  if (existsSync(refPath)) {
+    const revision = readFileSync(refPath, 'utf8').trim()
+    const snapshotPath = join(cacheRoot, 'snapshots', revision, file)
+    if (existsSync(snapshotPath)) return snapshotPath
+  }
+  const snapshotsDir = join(cacheRoot, 'snapshots')
+  if (!existsSync(snapshotsDir)) return ''
+  for (const revision of readdirSync(snapshotsDir)) {
+    const snapshotPath = join(snapshotsDir, revision, file)
+    if (existsSync(snapshotPath)) return snapshotPath
+  }
+  return ''
+}
+
+function runtimeLabel(settings: ManagerSettings, preset: ModelPreset) {
+  return settings.modelMode === 'local' ? settings.localModelPath : preset.name
+}
+
+function modelDownloadEnv(settings: ManagerSettings) {
+  const endpoint = settings.modelSource === 'hf-mirror' ? 'https://hf-mirror.com' : String(settings.modelEndpoint || '').trim()
+  if (!endpoint) return {}
+  return {
+    MODEL_ENDPOINT: endpoint,
+    HF_ENDPOINT: endpoint,
+  }
+}
+
 async function downloadModel(input?: { presetId?: string }) {
   return runTask('下载模型', async () => {
+    if (getSettings().modelMode === 'local') throw new Error('本地 GGUF 模式无需通过 GUI 下载，请先用 ModelScope 下载文件后选择路径')
     const preset = MODEL_PRESETS.find((item) => item.id === input?.presetId) || currentPreset()
     if (runtimeProcess) throw new Error('请先停止正在运行的模型 runtime')
-    const child = startRuntime(preset, 'download')
+    const child = await startRuntime(preset, 'download')
     await waitForHealth(`http://127.0.0.1:${getSettings().runtimePort}/health`, 20 * 60_000)
     const downloaded = new Set(store.get('downloadedPresetIds') || [])
     downloaded.add(preset.id)
@@ -264,6 +431,7 @@ async function downloadModel(input?: { presetId?: string }) {
 function writeAdapterConfig() {
   const settings = getSettings()
   const preset = currentPreset()
+  const modelName = settings.modelMode === 'local' ? settings.localModelPath.split(/[\\/]/).pop() || 'local-gguf' : preset.model
   ensureDir(join(settings.llmServerDir, 'config'))
   const configPath = join(settings.llmServerDir, 'config', 'server.json')
   writeFileSync(
@@ -278,7 +446,7 @@ function writeAdapterConfig() {
         minicpmO: {
           endpoint: `http://${settings.runtimeHost}:${settings.runtimePort}/v1/chat/completions`,
           apiKey: '',
-          model: preset.model,
+          model: modelName,
         },
       },
       null,
@@ -317,7 +485,7 @@ async function startAll() {
       if (!llamaPath) throw new Error('llama-app 安装完成，但仍未检测到 llama 命令，请手动填写 runtime 路径')
       setSettings({ llamaPath })
     }
-    if (!runtimeProcess) startRuntime(preset, 'serve')
+    if (!runtimeProcess) await startRuntime(preset, 'serve')
     await waitForHealth(`http://${getSettings().runtimeHost}:${getSettings().runtimePort}/health`, 20 * 60_000)
     if (!adapterProcess) startAdapter()
     await waitForHealth(`http://127.0.0.1:${getSettings().adapterPort}/health`, 30_000)
@@ -405,7 +573,7 @@ ipcMain.handle('manager:updateSettings', (_event, input: Partial<ManagerSettings
 ipcMain.handle('manager:installRuntime', () => handle(() => installRuntime()))
 ipcMain.handle('manager:downloadModel', (_event, input: { presetId?: string }) => handle(() => downloadModel(input || {})))
 ipcMain.handle('manager:startRuntime', () => handle(() => {
-  startRuntime()
+  return startRuntime()
 }))
 ipcMain.handle('manager:stopRuntime', () => handle(() => stopRuntime()))
 ipcMain.handle('manager:startAdapter', () => handle(() => {

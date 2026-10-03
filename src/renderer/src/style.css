@@ -65,6 +65,38 @@ body {
   width: 100%;
 }
 
+.mode-switch {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.source-switch {
+  width: 100%;
+}
+
+.source-panel,
+.local-panel {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #d6e4ff;
+  border-radius: 8px;
+  background: #f5f9ff;
+}
+
+.local-panel {
+  margin-bottom: 0;
+}
+
+.field-label {
+  margin-bottom: 8px;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.local-field {
+  margin-top: 14px;
+}
+
 .preset-item {
   display: flex;
   align-items: flex-start;
