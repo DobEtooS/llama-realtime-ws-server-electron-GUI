@@ -186,6 +186,14 @@ body {
   background: #f8fafc;
 }
 
+.tuning-panel {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #f9fbff;
+}
+
 .hardware-head {
   display: flex;
   align-items: flex-start;
@@ -210,6 +218,36 @@ body {
 
 .hardware-args {
   color: #0f766e;
+}
+
+.tuning-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tuning-grid div {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.tuning-grid span,
+.tuning-grid strong {
+  display: block;
+}
+
+.tuning-grid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.tuning-grid strong {
+  margin-top: 2px;
+  color: #111827;
+  font-size: 15px;
 }
 
 .advanced-collapse {

@@ -7,6 +7,7 @@ export type ModelPreset = {
   model: string
   clientModelName: string
   mmprojFile?: string
+  recommendedImageMinTokens?: number
   runtimeArgs?: string[]
   modelscope?: {
     repo: string
@@ -28,6 +29,10 @@ export type ManagerSettings = {
   manualDevices: string
   manualSplitMode: string
   manualTensorSplit: string
+  runtimeTuningMode: 'auto' | 'manual'
+  manualCtxSize: number
+  manualParallelSlots: number
+  manualImageMinTokens: number
   extraRuntimeArgs: string
   llamaPath: string
   nodePath: string
@@ -52,6 +57,7 @@ export type RuntimeStatus = {
   platform: NodeJS.Platform
   arch: string
   hardware: HardwareStatus
+  runtimeTuning: RuntimeTuningStatus
   llamaPath: string
   llamaInstalled: boolean
   installHint: string
@@ -73,6 +79,15 @@ export type HardwareStatus = {
   args: string[]
   summary: string
   raw: string
+}
+
+export type RuntimeTuningStatus = {
+  mode: 'auto' | 'manual'
+  ctxSize: number
+  parallelSlots: number
+  imageMinTokens: number
+  args: string[]
+  summary: string
 }
 
 export type AppState = {

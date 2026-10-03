@@ -10,13 +10,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     model: 'ggml-org/Qwen2.5-VL-3B-Instruct-GGUF:Q4_K_M',
     clientModelName: 'Qwen2.5-VL-3B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
-    runtimeArgs: ['--image-min-tokens', '1024'],
+    recommendedImageMinTokens: 1024,
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf',
       mmprojFile: 'mmproj-model-f16.gguf',
     },
-    ctxSize: 2048,
+    ctxSize: 8192,
     notes: '本地可用性优先，适合低频摄像头抽帧验证。',
   },
   {
@@ -28,13 +28,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     model: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF:Q3_K_M',
     clientModelName: 'Qwen2.5-VL-7B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
-    runtimeArgs: ['--image-min-tokens', '1024'],
+    recommendedImageMinTokens: 1024,
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-7B-Instruct-Q3_K_L.gguf',
       mmprojFile: 'mmproj-model-f16.gguf',
     },
-    ctxSize: 2048,
+    ctxSize: 8192,
     notes: '比 3B 更稳，量化更轻，适合 48GB Mac 优先评估。',
   },
   {
@@ -46,13 +46,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     model: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF:Q4_K_M',
     clientModelName: 'Qwen2.5-VL-7B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
-    runtimeArgs: ['--image-min-tokens', '1024'],
+    recommendedImageMinTokens: 1024,
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
       mmprojFile: 'mmproj-model-f16.gguf',
     },
-    ctxSize: 2048,
+    ctxSize: 8192,
     notes: '效果更好但更吃资源，建议降低抽帧频率。',
   },
   {
@@ -69,7 +69,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
       modelFile: 'MiniCPM-o-4_5-Q4_K_M.gguf',
       mmprojFile: 'vision/MiniCPM-o-4_5-vision-F16.gguf',
     },
-    ctxSize: 2048,
+    ctxSize: 8192,
     notes: '完整 omni 路线，当前机器可能较吃力。',
   },
 ]

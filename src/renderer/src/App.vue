@@ -251,6 +251,95 @@
                 </a-collapse-panel>
               </a-collapse>
             </div>
+            <div class="tuning-panel">
+              <div class="hardware-head">
+                <div>
+                  <strong>视觉运行稳定性</strong>
+                  <p>{{ state?.status.runtimeTuning.summary || '等待生成参数' }}</p>
+                </div>
+                <a-tag :color="state?.status.runtimeTuning.mode === 'manual' ? 'orange' : 'blue'">
+                  {{ state?.status.runtimeTuning.mode === 'manual' ? '手动参数' : '智能参数' }}
+                </a-tag>
+              </div>
+              <div class="tuning-grid">
+                <div>
+                  <span>上下文容量</span>
+                  <strong>{{ state?.status.runtimeTuning.ctxSize || '-' }}</strong>
+                </div>
+                <div>
+                  <span>同时请求</span>
+                  <strong>{{ state?.status.runtimeTuning.parallelSlots || '-' }}</strong>
+                </div>
+                <div>
+                  <span>图像 Token</span>
+                  <strong>{{ state?.status.runtimeTuning.imageMinTokens || '默认' }}</strong>
+                </div>
+              </div>
+              <div v-if="state?.status.runtimeTuning.args.length" class="hardware-args">
+                {{ state.status.runtimeTuning.args.join(' ') }}
+              </div>
+              <a-collapse class="advanced-collapse" ghost>
+                <a-collapse-panel key="runtime-tuning" header="运行负载参数">
+                  <a-form-item label="参数模式">
+                    <a-segmented
+                      v-model:value="draft.runtimeTuningMode"
+                      :options="[
+                        { label: '智能指定', value: 'auto' },
+                        { label: '手动指定', value: 'manual' },
+                      ]"
+                      block
+                      @change="saveSettings"
+                    />
+                  </a-form-item>
+                  <template v-if="draft.runtimeTuningMode === 'manual'">
+                    <a-row :gutter="12">
+                      <a-col :span="8">
+                        <a-form-item label="上下文容量">
+                          <a-input-number
+                            v-model:value="draft.manualCtxSize"
+                            :min="1024"
+                            :max="262144"
+                            :step="1024"
+                            style="width: 100%"
+                            @change="saveSettings"
+                            @blur="saveSettings"
+                          />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :span="8">
+                        <a-form-item label="同时请求">
+                          <a-input-number
+                            v-model:value="draft.manualParallelSlots"
+                            :min="1"
+                            :max="16"
+                            style="width: 100%"
+                            @change="saveSettings"
+                            @blur="saveSettings"
+                          />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :span="8">
+                        <a-form-item label="图像 Token">
+                          <a-input-number
+                            v-model:value="draft.manualImageMinTokens"
+                            :min="0"
+                            :max="8192"
+                            :step="128"
+                            style="width: 100%"
+                            @change="saveSettings"
+                            @blur="saveSettings"
+                          />
+                        </a-form-item>
+                      </a-col>
+                    </a-row>
+                    <div class="hint">遇到 mtmd chunk 或 memory slot 错误时，优先把同时请求设为 1，并增大上下文容量。</div>
+                  </template>
+                  <template v-else>
+                    <div class="hint">智能指定会按当前预设使用稳定参数，并在上方显示真实启动参数。</div>
+                  </template>
+                </a-collapse-panel>
+              </a-collapse>
+            </div>
             <a-row :gutter="12">
               <a-col :span="8">
                 <a-form-item label="Runtime Host">
@@ -306,6 +395,10 @@ const draft = reactive({
   manualDevices: '',
   manualSplitMode: '',
   manualTensorSplit: '',
+  runtimeTuningMode: 'auto' as 'auto' | 'manual',
+  manualCtxSize: 8192,
+  manualParallelSlots: 1,
+  manualImageMinTokens: 0,
   extraRuntimeArgs: '',
   llamaPath: '',
   nodePath: 'node',

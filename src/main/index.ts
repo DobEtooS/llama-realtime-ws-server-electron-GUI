@@ -6,7 +6,16 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { Readable } from 'node:stream'
 import Store from 'electron-store'
 import { MODEL_PRESETS } from '../shared/presets'
-import type { AppState, HardwareStatus, IpcResult, ManagedProcess, ManagerSettings, ModelPreset, RuntimeStatus } from '../shared/types'
+import type {
+  AppState,
+  HardwareStatus,
+  IpcResult,
+  ManagedProcess,
+  ManagerSettings,
+  ModelPreset,
+  RuntimeStatus,
+  RuntimeTuningStatus,
+} from '../shared/types'
 
 type StoreShape = {
   settings: ManagerSettings
@@ -30,6 +39,10 @@ const store = new Store<StoreShape>({
       manualDevices: '',
       manualSplitMode: '',
       manualTensorSplit: '',
+      runtimeTuningMode: 'auto',
+      manualCtxSize: 8192,
+      manualParallelSlots: 1,
+      manualImageMinTokens: 0,
       extraRuntimeArgs: '',
       llamaPath: '',
       nodePath: 'node',
@@ -101,6 +114,10 @@ function getSettings(): ManagerSettings {
     manualDevices: settings.manualDevices || '',
     manualSplitMode: settings.manualSplitMode || '',
     manualTensorSplit: settings.manualTensorSplit || '',
+    runtimeTuningMode: settings.runtimeTuningMode || 'auto',
+    manualCtxSize: Number(settings.manualCtxSize || 8192),
+    manualParallelSlots: Number(settings.manualParallelSlots || 1),
+    manualImageMinTokens: Number(settings.manualImageMinTokens || 0),
     extraRuntimeArgs: settings.extraRuntimeArgs || '',
     llamaPath: settings.llamaPath || detectLlamaPath(),
     llmServerDir: defaultLlmServerDir,
@@ -156,6 +173,7 @@ function getState(): AppState {
   const settings = getSettings()
   const llamaPath = settings.llamaPath || detectLlamaPath()
   const hardware = resolveHardwareStatus(settings, llamaPath)
+  const runtimeTuning = resolveRuntimeTuningStatus(settings, currentPreset())
   return {
     presets: MODEL_PRESETS,
     settings: { ...settings, llamaPath },
@@ -163,6 +181,7 @@ function getState(): AppState {
       platform: platform(),
       arch: arch(),
       hardware,
+      runtimeTuning,
       llamaPath,
       llamaInstalled: Boolean(llamaPath && (llamaPath === 'llama' || llamaPath === 'llama-server' || existsSync(llamaPath))),
       installHint: installCommandHint(),
@@ -421,6 +440,37 @@ function manualDevices(settings: ManagerSettings, backend: HardwareStatus['backe
   return ''
 }
 
+function resolveRuntimeTuningStatus(settings: ManagerSettings, preset: ModelPreset): RuntimeTuningStatus {
+  const mode = settings.runtimeTuningMode || 'auto'
+  const ctxSize = mode === 'manual'
+    ? clampNumber(settings.manualCtxSize, 1024, 262144, preset.ctxSize)
+    : preset.ctxSize
+  const parallelSlots = mode === 'manual'
+    ? clampNumber(settings.manualParallelSlots, 1, 16, 1)
+    : 1
+  const imageMinTokens = mode === 'manual'
+    ? clampNumber(settings.manualImageMinTokens, 0, 8192, preset.recommendedImageMinTokens || 0)
+    : preset.recommendedImageMinTokens || 0
+  const args = ['--parallel', String(parallelSlots), '--ctx-size', String(ctxSize)]
+  if (imageMinTokens > 0) args.push('--image-min-tokens', String(imageMinTokens))
+  const modeLabel = mode === 'manual' ? '手动' : '智能'
+  const imageLabel = imageMinTokens > 0 ? `，图像 token ${imageMinTokens}` : ''
+  return {
+    mode,
+    ctxSize,
+    parallelSlots,
+    imageMinTokens,
+    args,
+    summary: `${modeLabel}：上下文 ${ctxSize}，同时请求 ${parallelSlots}${imageLabel}`,
+  }
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return fallback
+  return Math.max(min, Math.min(max, Math.round(numberValue)))
+}
+
 function splitExtraArgs(input: string) {
   const matches = String(input || '').match(/"[^"]*"|'[^']*'|\S+/g) || []
   return matches.map((item) => item.replace(/^(['"])(.*)\1$/, '$2'))
@@ -433,7 +483,9 @@ async function startRuntime(preset: ModelPreset = currentPreset(), mode: 'serve'
   if (settings.modelMode === 'preset') await ensurePresetAssets(settings, preset)
   const args = runtimeArgs(settings, preset)
   const hardware = resolveHardwareStatus(settings, command)
+  const runtimeTuning = resolveRuntimeTuningStatus(settings, preset)
   log(`硬件策略：${hardware.summary}`)
+  log(`视觉运行策略：${runtimeTuning.summary}`)
   if (preset.runtimeArgs?.length) log(`预设兼容参数：${preset.runtimeArgs.join(' ')}`)
   log(`${mode === 'download' ? '下载/预热' : '启动'}模型：${runtimeLabel(settings, preset)}`)
   runtimeProcess = spawnManaged(command, args, {
@@ -475,7 +527,8 @@ function runtimeArgs(settings: ManagerSettings, preset: ModelPreset) {
   const hardware = resolveHardwareStatus(settings)
   args.push(...hardware.args)
   if (preset.runtimeArgs?.length) args.push(...preset.runtimeArgs)
-  args.push('--ctx-size', String(preset.ctxSize), '--host', settings.runtimeHost, '--port', String(settings.runtimePort))
+  args.push(...resolveRuntimeTuningStatus(settings, preset).args)
+  args.push('--host', settings.runtimeHost, '--port', String(settings.runtimePort))
   args.push(...splitExtraArgs(settings.extraRuntimeArgs))
   return args
 }

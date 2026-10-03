@@ -31,6 +31,10 @@ function maxTokensFor(request) {
 
 function parseJsonObject(text) {
   const cleaned = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim()
+  const compact = cleaned.replace(/\s/g, '')
+  if (/^\?{16,}$/.test(compact)) {
+    throw new Error('模型返回连续问号，通常表示服务器端 GGUF/mmproj/runtime 组合异常，或视觉模板不兼容。请确认主模型和 mmproj 来自同一预设，并使用单 slot、大上下文启动。')
+  }
   try {
     return JSON.parse(cleaned)
   } catch {
@@ -60,6 +64,20 @@ function fallbackResult(request, rawText, reason) {
     reason,
     rawOutput: rawText,
   }
+}
+
+async function runtimeError(response) {
+  const body = await response.text()
+  let message = body
+  try {
+    message = JSON.parse(body).error?.message || body
+  } catch {
+    // keep raw body
+  }
+  if (/failed to process mtmd chunk|failed to decode image|failed to find a memory slot/i.test(message)) {
+    return `视觉 chunk 处理失败：${message}。这通常是 llama-server 的 KV slot/上下文不足，或主模型与 mmproj 不匹配；建议使用 --parallel 1、增大 --ctx-size，并确认 mmproj 来自同一模型预设。`
+  }
+  return `MiniCPM-o runtime HTTP ${response.status}: ${body}`
 }
 
 export function createMiniCpmOProvider(config = {}) {
@@ -96,7 +114,8 @@ export function createMiniCpmOProvider(config = {}) {
         }),
       })
       if (!response.ok) {
-        throw new Error(`MiniCPM-o runtime HTTP ${response.status}: ${await response.text()}`)
+        const reason = await runtimeError(response)
+        return fallbackResult(request, '', reason)
       }
       const payload = await response.json()
       const text = payload.choices?.[0]?.message?.content || payload.text || ''
