@@ -1,0 +1,15 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "provider": "mock",
+  "apiKey": "",
+  "defaultMode": "video",
+  "mock": {
+    "eventOccurred": false
+  },
+  "minicpmO": {
+    "endpoint": "http://127.0.0.1:8080/v1/chat/completions",
+    "apiKey": "",
+    "model": "MiniCPM-o-4.5"
+  }
+}

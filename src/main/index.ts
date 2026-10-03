@@ -14,7 +14,9 @@ type StoreShape = {
 }
 
 const repoRoot = resolve(app.getAppPath(), '..')
-const defaultLlmServerDir = resolve(repoRoot, 'llm-server')
+const bundledLlmServerDir = app.isPackaged ? join(process.resourcesPath, 'llm-server') : resolve(app.getAppPath(), 'resources', 'llm-server')
+const legacyExternalLlmServerDir = resolve(repoRoot, 'llm-server')
+const defaultLlmServerDir = bundledLlmServerDir
 const store = new Store<StoreShape>({
   defaults: {
     settings: {
@@ -82,7 +84,7 @@ function getSettings(): ManagerSettings {
     modelMode: settings.modelMode || 'preset',
     modelSource: settings.modelSource || (settings.modelEndpoint ? 'hf-mirror' : 'huggingface'),
     llamaPath: settings.llamaPath || detectLlamaPath(),
-    llmServerDir: settings.llmServerDir || defaultLlmServerDir,
+    llmServerDir: defaultLlmServerDir,
     modelEndpoint: settings.modelEndpoint || '',
     localModelPath: settings.localModelPath || '',
     localMmprojPath: settings.localMmprojPath || '',
@@ -428,12 +430,16 @@ async function downloadModel(input?: { presetId?: string }) {
   })
 }
 
+function adapterConfigPath() {
+  return join(app.getPath('userData'), 'llm-server', 'config', 'server.json')
+}
+
 function writeAdapterConfig() {
   const settings = getSettings()
   const preset = currentPreset()
   const modelName = settings.modelMode === 'local' ? settings.localModelPath.split(/[\\/]/).pop() || 'local-gguf' : preset.model
-  ensureDir(join(settings.llmServerDir, 'config'))
-  const configPath = join(settings.llmServerDir, 'config', 'server.json')
+  const configPath = adapterConfigPath()
+  ensureDir(dirname(configPath))
   writeFileSync(
     configPath,
     `${JSON.stringify(
@@ -455,18 +461,30 @@ function writeAdapterConfig() {
     'utf8',
   )
   log(`已写入 adapter 配置：${configPath}`)
+  return configPath
 }
 
 function startAdapter() {
   if (adapterProcess) throw new Error('llm-server adapter 已在运行')
   const settings = getSettings()
-  writeAdapterConfig()
-  const adapterPath = join(settings.llmServerDir, 'server', 'adapter.mjs')
+  const configPath = writeAdapterConfig()
+  const adapterDir = defaultLlmServerDir
+  const adapterPath = join(adapterDir, 'server', 'adapter.mjs')
   if (!existsSync(adapterPath)) throw new Error(`找不到 adapter：${adapterPath}`)
   log('启动 llm-server adapter')
-  adapterProcess = spawnManaged(settings.nodePath || 'node', ['server/adapter.mjs', '--port', String(settings.adapterPort)], {
-    cwd: settings.llmServerDir,
-    env: { LLM_SERVER_PROVIDER: 'minicpm-o' },
+  const useElectronNode = app.isPackaged && (!settings.nodePath || settings.nodePath === 'node')
+  adapterProcess = spawnManaged(useElectronNode ? process.execPath : settings.nodePath || 'node', [
+    'server/adapter.mjs',
+    '--config',
+    configPath,
+    '--port',
+    String(settings.adapterPort),
+  ], {
+    cwd: adapterDir,
+    env: {
+      LLM_SERVER_PROVIDER: 'minicpm-o',
+      ...(useElectronNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+    },
   })
   broadcastState()
 }

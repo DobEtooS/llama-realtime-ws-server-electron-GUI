@@ -139,12 +139,6 @@
             <a-form-item label="Node 路径">
               <a-input v-model:value="draft.nodePath" placeholder="node" @blur="saveSettings" />
             </a-form-item>
-            <a-form-item label="llm-server 目录">
-              <a-input-group compact>
-                <a-input v-model:value="draft.llmServerDir" style="width: calc(100% - 88px)" />
-                <a-button @click="chooseServerDir">选择</a-button>
-              </a-input-group>
-            </a-form-item>
             <a-row :gutter="12">
               <a-col :span="8">
                 <a-form-item label="Runtime Host">
@@ -194,7 +188,6 @@ const draft = reactive({
   modelSource: 'huggingface' as 'huggingface' | 'hf-mirror' | 'modelscope',
   llamaPath: '',
   nodePath: 'node',
-  llmServerDir: '',
   runtimeHost: '127.0.0.1',
   runtimePort: 8080,
   adapterPort: 8765,
@@ -246,13 +239,6 @@ async function chooseLlama() {
   const path = await unwrap(await window.llmServerManager.choosePath('file'))
   if (!path) return
   draft.llamaPath = path
-  await saveSettings()
-}
-
-async function chooseServerDir() {
-  const path = await unwrap(await window.llmServerManager.choosePath('directory'))
-  if (!path) return
-  draft.llmServerDir = path
   await saveSettings()
 }
 

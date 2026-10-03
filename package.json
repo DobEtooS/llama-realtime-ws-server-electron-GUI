@@ -38,6 +38,16 @@
       "out/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources/llm-server",
+        "to": "llm-server",
+        "filter": [
+          "**/*",
+          "!**/.DS_Store"
+        ]
+      }
+    ],
     "win": {
       "target": [
         {
