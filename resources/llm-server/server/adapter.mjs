@@ -64,6 +64,9 @@ const server = createServer((req, res) => {
     writeJson(res, 200, {
       ok: true,
       provider: provider.name,
+      model: config.minicpmO?.model || '',
+      client_model_name: config.minicpmO?.model || '',
+      preset: config.preset || null,
       endpoint: publicRealtimeEndpoint(req),
     })
     return
@@ -71,6 +74,8 @@ const server = createServer((req, res) => {
   writeJson(res, 200, {
     name: 'local-full-duplex-llm-server',
     provider: provider.name,
+    model: config.minicpmO?.model || '',
+    client_model_name: config.minicpmO?.model || '',
     realtime: `/v1/realtime?mode=${config.defaultMode}`,
   })
 })

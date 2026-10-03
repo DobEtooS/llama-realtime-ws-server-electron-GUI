@@ -53,6 +53,7 @@
                     <a-tag v-if="downloadedSet.has(preset.id)" color="green">已下载/已验证</a-tag>
                   </div>
                   <div class="preset-meta">{{ preset.model }}</div>
+                  <div class="preset-client-model">客户端模型名：<code>{{ preset.clientModelName }}</code></div>
                   <div class="preset-note">{{ preset.notes }}</div>
                 </div>
               </label>

@@ -8,7 +8,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
     hf: 'ggml-org/Qwen2.5-VL-3B-Instruct-GGUF',
     quant: 'Q4_K_M',
     model: 'ggml-org/Qwen2.5-VL-3B-Instruct-GGUF:Q4_K_M',
+    clientModelName: 'Qwen2.5-VL-3B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
+    runtimeArgs: ['--image-min-tokens', '1024'],
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf',
@@ -24,7 +26,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
     hf: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF',
     quant: 'Q3_K_M',
     model: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF:Q3_K_M',
+    clientModelName: 'Qwen2.5-VL-7B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
+    runtimeArgs: ['--image-min-tokens', '1024'],
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-7B-Instruct-Q3_K_L.gguf',
@@ -40,7 +44,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
     hf: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF',
     quant: 'Q4_K_M',
     model: 'ggml-org/Qwen2.5-VL-7B-Instruct-GGUF:Q4_K_M',
+    clientModelName: 'Qwen2.5-VL-7B-Instruct',
     mmprojFile: 'mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
+    runtimeArgs: ['--image-min-tokens', '1024'],
     modelscope: {
       repo: 'lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF',
       modelFile: 'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
@@ -56,6 +62,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
     hf: 'openbmb/MiniCPM-o-4_5-gguf',
     quant: 'Q4_K_M',
     model: 'openbmb/MiniCPM-o-4_5-gguf:Q4_K_M',
+    clientModelName: 'MiniCPM-o-4.5',
     mmprojFile: 'vision/MiniCPM-o-4_5-vision-F16.gguf',
     modelscope: {
       repo: 'OpenBMB/MiniCPM-o-4_5-gguf',

@@ -41,6 +41,27 @@ function parseJsonObject(text) {
   }
 }
 
+function fallbackResult(request, rawText, reason) {
+  const eventNames = request.eventNames?.length ? request.eventNames : splitEventQueries(request.query)
+  if (request.eventRecognition || eventNames.length > 1) {
+    return {
+      events: eventNames.map((name) => ({
+        name,
+        current_frame_occurred: false,
+        event_occurred: false,
+        reason,
+      })),
+      bbox: null,
+      rawOutput: rawText,
+    }
+  }
+  return {
+    bbox: null,
+    reason,
+    rawOutput: rawText,
+  }
+}
+
 export function createMiniCpmOProvider(config = {}) {
   const endpoint = config.endpoint || 'http://127.0.0.1:8080/v1/chat/completions'
   const model = config.model || 'MiniCPM-o-4.5'
@@ -58,7 +79,6 @@ export function createMiniCpmOProvider(config = {}) {
           model,
           temperature: 0,
           max_tokens: maxTokensFor(request),
-          response_format: { type: 'json_object' },
           messages: [
             {
               role: 'user',
@@ -80,7 +100,11 @@ export function createMiniCpmOProvider(config = {}) {
       }
       const payload = await response.json()
       const text = payload.choices?.[0]?.message?.content || payload.text || ''
-      return parseJsonObject(text)
+      try {
+        return parseJsonObject(text)
+      } catch (error) {
+        return fallbackResult(request, String(text), error instanceof Error ? error.message : '模型未返回有效 JSON')
+      }
     },
   }
 }

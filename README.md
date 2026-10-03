@@ -118,10 +118,12 @@ llama serve -m /path/to/model.gguf --mmproj /path/to/mmproj.gguf
 
 当前内置：
 
-- `Qwen2.5-VL 3B Q4_K_M`
-- `Qwen2.5-VL 7B Q3_K_M`
-- `Qwen2.5-VL 7B Q4_K_M`
-- `MiniCPM-o 4.5 Q4_K_M`
+- `Qwen2.5-VL 3B Q4_K_M`，客户端模型名：`Qwen2.5-VL-3B-Instruct`
+- `Qwen2.5-VL 7B Q3_K_M`，客户端模型名：`Qwen2.5-VL-7B-Instruct`
+- `Qwen2.5-VL 7B Q4_K_M`，客户端模型名：`Qwen2.5-VL-7B-Instruct`
+- `MiniCPM-o 4.5 Q4_K_M`，客户端模型名：`MiniCPM-o-4.5`
+
+在实时识别 App 的「模型」字段里填写对应的「客户端模型名」。启动 adapter 后，`/health` 也会返回 `client_model_name`。
 
 GUI 会通过：
 

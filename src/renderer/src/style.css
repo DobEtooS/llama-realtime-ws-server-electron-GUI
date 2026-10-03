@@ -139,6 +139,21 @@ body {
   font-size: 13px;
 }
 
+.preset-client-model {
+  margin-top: 5px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.preset-client-model code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #1d4ed8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
 .action-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

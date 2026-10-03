@@ -434,6 +434,7 @@ async function startRuntime(preset: ModelPreset = currentPreset(), mode: 'serve'
   const args = runtimeArgs(settings, preset)
   const hardware = resolveHardwareStatus(settings, command)
   log(`硬件策略：${hardware.summary}`)
+  if (preset.runtimeArgs?.length) log(`预设兼容参数：${preset.runtimeArgs.join(' ')}`)
   log(`${mode === 'download' ? '下载/预热' : '启动'}模型：${runtimeLabel(settings, preset)}`)
   runtimeProcess = spawnManaged(command, args, {
     env: modelDownloadEnv(settings),
@@ -473,6 +474,7 @@ function runtimeArgs(settings: ManagerSettings, preset: ModelPreset) {
   }
   const hardware = resolveHardwareStatus(settings)
   args.push(...hardware.args)
+  if (preset.runtimeArgs?.length) args.push(...preset.runtimeArgs)
   args.push('--ctx-size', String(preset.ctxSize), '--host', settings.runtimeHost, '--port', String(settings.runtimePort))
   args.push(...splitExtraArgs(settings.extraRuntimeArgs))
   return args
@@ -630,7 +632,9 @@ function adapterConfigPath() {
 function writeAdapterConfig() {
   const settings = getSettings()
   const preset = currentPreset()
-  const modelName = settings.modelMode === 'local' ? settings.localModelPath.split(/[\\/]/).pop() || 'local-gguf' : preset.model
+  const modelName = settings.modelMode === 'local'
+    ? settings.localModelPath.split(/[\\/]/).pop()?.replace(/\.gguf$/i, '') || 'local-gguf'
+    : preset.clientModelName
   const configPath = adapterConfigPath()
   ensureDir(dirname(configPath))
   writeFileSync(
@@ -642,6 +646,13 @@ function writeAdapterConfig() {
         provider: 'minicpm-o',
         apiKey: '',
         defaultMode: 'video',
+        preset: settings.modelMode === 'preset'
+          ? {
+              id: preset.id,
+              name: preset.name,
+              clientModelName: preset.clientModelName,
+            }
+          : null,
         minicpmO: {
           endpoint: `http://${settings.runtimeHost}:${settings.runtimePort}/v1/chat/completions`,
           apiKey: '',

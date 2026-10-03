@@ -5,7 +5,9 @@ export type ModelPreset = {
   hf: string
   quant: string
   model: string
+  clientModelName: string
   mmprojFile?: string
+  runtimeArgs?: string[]
   modelscope?: {
     repo: string
     modelFile: string
